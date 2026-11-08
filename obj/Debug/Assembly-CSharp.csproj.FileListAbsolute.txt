@@ -1,6 +1,0 @@
-D:\3D_Game\DATN\Temp\bin\Debug\Assembly-CSharp.dll
-D:\3D_Game\DATN\Temp\bin\Debug\Assembly-CSharp.pdb
-D:\3D_Game\DATN\obj\Debug\Assembly-CSharp.csproj.AssemblyReference.cache
-D:\3D_Game\DATN\obj\Debug\Assembly-CSharp.csproj.CoreCompileInputs.cache
-D:\3D_Game\DATN\obj\Debug\Assembly-CSharp.dll
-D:\3D_Game\DATN\obj\Debug\Assembly-CSharp.pdb
