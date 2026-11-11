@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using UnityEngine;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -15,9 +15,30 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour
 {
+    [Header("=== ANIMATION ===")]
+    [Tooltip("Animator điều khiển animation cho Player (tự tìm nếu để trống)")]
+    [SerializeField] private Animator animator;
+
     [Header("=== DI CHUYỂN (A / D) ===")]
     [Tooltip("Tốc độ di chuyển theo phương ngang (m/s)")]
     [SerializeField] private float moveSpeed = 3.5f;
+
+    [Header("=== TẤN CÔNG (CHUỘT TRÁI) ===")]
+    [Tooltip("BoxCollider2D của GameObject Sword (con của Player, tag PlayerSword)")]
+    [SerializeField] private BoxCollider2D swordCollider;
+
+    [Tooltip("Thời gian bật Box Collider 2D của Sword trước khi lập tức tắt đi (giây)")]
+    [SerializeField] private float swordActiveDuration = 0.15f;
+
+    [Tooltip("Thời gian hồi chiêu giữa các đòn đánh thường (giây)")]
+    [SerializeField] private float attackCooldown = 0.25f;
+
+    [Header("=== MÁU & TRẠNG THÁI (HEALTH) ===")]
+    [Tooltip("Lượng máu tối đa của Player (mặc định 100)")]
+    [SerializeField] private float maxHealth = 100f;
+
+    [Tooltip("Lượng máu hiện tại của Player")]
+    [SerializeField] private float currentHealth = 100f;
 
     [Header("=== NHẢY & DOUBLE JUMP (SPACE) ===")]
     [Tooltip("Lực nhảy lần 1 từ mặt đất")]
@@ -81,7 +102,34 @@ public class PlayerController : MonoBehaviour
     private Coroutine dashCoroutine;
     private Coroutine iFrameCoroutine;
 
+    // Trạng thái sống / chết
+    private bool isDead;
+
+    // Trạng thái bị khựng (Stun / Hitstun)
+    private bool isStunned;
+    private Coroutine stunCoroutine;
+
+    // Trạng thái tấn công
+    private bool isAttacking;
+    private Coroutine attackCoroutine;
+
+    // Trạng thái Animation
+    private const string ANIM_IDLE = "Idle";
+    private const string ANIM_RUN = "Run";
+    private const string ANIM_JUMP = "Jump";
+    private const string ANIM_ATTACK = "Attack";
+    private const string ANIM_DEAD = "Dead";
+    private string currentAnimState;
+
     // Properties công khai để các hệ thống khác (Combat, Animation, UI) có thể truy cập
+    public float MaxHealth => maxHealth;
+    public float CurrentHealth => currentHealth;
+    public bool IsDead => isDead;
+    public bool IsStunned => isStunned;
+    public bool IsAttacking => isAttacking;
+    public BoxCollider2D SwordCollider => swordCollider;
+    public Animator Animator => animator;
+    public string CurrentAnimState => currentAnimState;
     public bool IsGrounded => isGrounded;
     public bool CanDoubleJump => canDoubleJump;
     public int JumpsRemaining => isGrounded ? 2 : (canDoubleJump ? 1 : 0);
@@ -95,10 +143,16 @@ public class PlayerController : MonoBehaviour
     public System.Action OnJump;
     public System.Action OnDoubleJump;
     public System.Action OnDash;
+    public System.Action OnAttack;
     public System.Action<bool> OnInvincibilityChanged;
+    public System.Action<float, float> OnHealthChanged; // (currentHealth, maxHealth)
+    public System.Action OnPlayerDeath;
 
     private void Awake()
     {
+        currentHealth = maxHealth;
+        isDead = false;
+
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
         spriteRenderer = GetComponentInChildren<SpriteRenderer>();
@@ -125,6 +179,80 @@ public class PlayerController : MonoBehaviour
         groundFilter.useTriggers = false;
 
         canDoubleJump = true;
+
+        // Tự động tìm Animator nếu chưa gán
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>();
+            }
+        }
+    }
+
+    private void Start()
+    {
+        InitSwordCollider();
+
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>();
+            }
+        }
+    }
+
+    private void InitSwordCollider()
+    {
+        if (swordCollider == null)
+        {
+            FindSwordCollider();
+        }
+
+        // Đảm bảo ban đầu Box Collider 2D của Sword tắt đi
+        if (swordCollider != null)
+        {
+            swordCollider.enabled = false;
+        }
+    }
+
+    /// <summary>
+    /// Tìm kiếm BoxCollider2D của Sword (GameObject con có tên Sword hoặc Tag PlayerSword)
+    /// </summary>
+    private void FindSwordCollider()
+    {
+        Transform[] children = GetComponentsInChildren<Transform>(true);
+        foreach (var child in children)
+        {
+            if (child == transform) continue;
+
+            bool isMatch = child.gameObject.name == "Sword" || SafeCompareTag(child.gameObject, "PlayerSword");
+            if (isMatch)
+            {
+                var bc = child.GetComponent<BoxCollider2D>();
+                if (bc != null)
+                {
+                    swordCollider = bc;
+                    break;
+                }
+            }
+        }
+    }
+
+    private static bool SafeCompareTag(GameObject obj, string tag)
+    {
+        if (obj == null) return false;
+        try
+        {
+            return obj.CompareTag(tag);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void Update()
@@ -141,6 +269,9 @@ public class PlayerController : MonoBehaviour
             jumpRequest = false;
             HandleJump();
         }
+
+        // 4. Cập nhật Animation (Run, Idle, Jump, Attack)
+        UpdateAnimation();
     }
 
     private void FixedUpdate()
@@ -161,17 +292,24 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private void ProcessInputs()
     {
+        if (isDead || isStunned)
+        {
+            horizontalInput = 0f;
+            return;
+        }
+
         if (isDashing)
         {
             horizontalInput = 0f;
             return;
         }
 
-        // --- Đọc phím A / D hoặc mũi tên trái / phải ---
+        // --- Đọc phím A / D hoặc mũi tên trái / phải & Chuột trái ---
         bool leftPressed = false;
         bool rightPressed = false;
         bool jumpPressed = false;
         bool dashPressed = false;
+        bool attackPressed = false;
 
 #if ENABLE_INPUT_SYSTEM
         if (Keyboard.current != null)
@@ -181,6 +319,10 @@ public class PlayerController : MonoBehaviour
             jumpPressed |= Keyboard.current.spaceKey.wasPressedThisFrame;
             dashPressed |= Keyboard.current.leftShiftKey.wasPressedThisFrame || Keyboard.current.rightShiftKey.wasPressedThisFrame;
         }
+        if (Mouse.current != null)
+        {
+            attackPressed |= Mouse.current.leftButton.wasPressedThisFrame;
+        }
 #endif
 
 #if ENABLE_LEGACY_INPUT_MANAGER
@@ -188,6 +330,7 @@ public class PlayerController : MonoBehaviour
         rightPressed |= Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow);
         jumpPressed |= Input.GetKeyDown(KeyCode.Space);
         dashPressed |= Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift);
+        attackPressed |= Input.GetMouseButtonDown(0);
 #endif
 
         // Tính toán hướng di chuyển ngang (-1: Trái, 0: Đứng yên, 1: Phải)
@@ -206,6 +349,12 @@ public class PlayerController : MonoBehaviour
         {
             StartDash();
         }
+
+        // Bắt sự kiện Tấn công (Chuột trái)
+        if (attackPressed && !isAttacking)
+        {
+            PerformAttack();
+        }
     }
     #endregion
 
@@ -215,6 +364,16 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private void ApplyMovement()
     {
+        if (isDead || isStunned)
+        {
+#if UNITY_6000_0_OR_NEWER
+            rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+#else
+            rb.velocity = new Vector2(0f, rb.velocity.y);
+#endif
+            return;
+        }
+
         float targetVelocityX = horizontalInput * moveSpeed;
 
 #if UNITY_6000_0_OR_NEWER
@@ -339,6 +498,8 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private void HandleJump()
     {
+        if (isDead || isStunned) return;
+
         if (isGrounded)
         {
             // Nhảy lần 1 từ mặt đất
@@ -346,6 +507,7 @@ public class PlayerController : MonoBehaviour
             isGrounded = false;
             canDoubleJump = true; // Cho phép thực hiện 1 lần Double Jump khi đang trên không
             lastJumpTime = Time.time;
+            ChangeAnimationState(ANIM_JUMP, forceRestart: true);
             OnJump?.Invoke();
         }
         else if (canDoubleJump)
@@ -354,6 +516,7 @@ public class PlayerController : MonoBehaviour
             ExecuteJump(doubleJumpForce);
             canDoubleJump = false; // ĐÃ DOUBLE JUMP -> KHÓA CHẶT, SPAM SPACE SẼ KHÔNG NHẢY NỮA CHO ĐẾN KHI CHẠM ĐẤT!
             lastJumpTime = Time.time;
+            ChangeAnimationState(ANIM_JUMP, forceRestart: true);
             OnDoubleJump?.Invoke();
         }
         // Nếu không chạm đất VÀ canDoubleJump == false: Bỏ qua hoàn toàn, không nhảy được!
@@ -376,6 +539,8 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private void StartDash()
     {
+        if (isDead || isStunned) return;
+
         if (dashCoroutine != null)
         {
             StopCoroutine(dashCoroutine);
@@ -473,6 +638,249 @@ public class PlayerController : MonoBehaviour
 
         isInvincible = false;
         OnInvincibilityChanged?.Invoke(false);
+    }
+    #endregion
+
+    #region Attack (Left Mouse Click)
+    /// <summary>
+    /// Thực hiện đòn tấn công khi bấm chuột trái:
+    /// Bật Box Collider 2D của Sword trong thoáng chốc rồi lập tức tắt đi.
+    /// </summary>
+    public void PerformAttack()
+    {
+        if (isDead || isStunned) return;
+
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+        }
+        attackCoroutine = StartCoroutine(AttackRoutine());
+
+        OnAttack?.Invoke();
+    }
+
+    private IEnumerator AttackRoutine()
+    {
+        isAttacking = true;
+
+        // Chạy animation Attack ngay khi bấm chuột trái
+        ChangeAnimationState(ANIM_ATTACK, forceRestart: true);
+
+        if (swordCollider == null)
+        {
+            FindSwordCollider();
+        }
+
+        // Bật Box Collider 2D của Sword lên
+        if (swordCollider != null)
+        {
+            swordCollider.enabled = true;
+            Debug.Log("[PlayerController] Box Collider 2D cua Sword da BAT!");
+        }
+        else
+        {
+            Debug.LogWarning("[PlayerController] Khong tim thay Box Collider 2D tren Sword (Name: Sword / Tag: PlayerSword)!");
+        }
+
+        // Bật lên trong thoáng chốc (mặc định 0.15s)
+        yield return new WaitForSeconds(swordActiveDuration);
+
+        // Lập tức tắt đi
+        if (swordCollider != null)
+        {
+            swordCollider.enabled = false;
+            Debug.Log("[PlayerController] Box Collider 2D cua Sword da TAT.");
+        }
+
+        // Chờ thời gian hồi chiêu trước khi được đánh đòn tiếp theo
+        float remainingCooldown = Mathf.Max(0f, attackCooldown - swordActiveDuration);
+        if (remainingCooldown > 0f)
+        {
+            yield return new WaitForSeconds(remainingCooldown);
+        }
+
+        isAttacking = false;
+        attackCoroutine = null;
+
+        // Cập nhật lại animation phù hợp ngay khi kết thúc tấn công
+        UpdateAnimation();
+    }
+    #endregion
+
+    #region Health & Damage
+    /// <summary>
+    /// Nhận sát thương và trừ máu của Player.
+    /// </summary>
+    /// <param name="damage">Lượng sát thương trừ vào máu</param>
+    public void TakeDamage(float damage)
+    {
+        if (isDead) return;
+
+        currentHealth = Mathf.Max(0f, currentHealth - damage);
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+
+        if (currentHealth <= 0f)
+        {
+            Die();
+        }
+    }
+
+    /// <summary>
+    /// Hồi máu cho Player nhưng không vượt quá maxHealth.
+    /// </summary>
+    public void Heal(float amount)
+    {
+        if (isDead) return;
+
+        currentHealth = Mathf.Min(maxHealth, currentHealth + amount);
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+    }
+
+    /// <summary>
+    /// Cho phép thiết lập hoặc nâng cấp lượng máu tối đa của Player.
+    /// </summary>
+    public void SetMaxHealth(float newMaxHealth, bool resetCurrentHealth = false)
+    {
+        maxHealth = Mathf.Max(1f, newMaxHealth);
+        if (resetCurrentHealth || currentHealth > maxHealth)
+        {
+            currentHealth = maxHealth;
+        }
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+    }
+
+    /// <summary>
+    /// Làm Player bị khựng lại (không nhận di chuyển, nhảy, lướt) trong một khoảng thời gian (giây).
+    /// </summary>
+    public void Stun(float duration)
+    {
+        if (isDead) return;
+
+        if (stunCoroutine != null)
+        {
+            StopCoroutine(stunCoroutine);
+        }
+        stunCoroutine = StartCoroutine(StunRoutine(duration));
+    }
+
+    private IEnumerator StunRoutine(float duration)
+    {
+        isStunned = true;
+        horizontalInput = 0f;
+
+#if UNITY_6000_0_OR_NEWER
+        rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+#else
+        rb.velocity = new Vector2(0f, rb.velocity.y);
+#endif
+
+        yield return new WaitForSeconds(duration);
+
+        isStunned = false;
+        stunCoroutine = null;
+    }
+
+    /// <summary>
+    /// Xử lý khi Player hết máu và tử trận:
+    /// Chạy animation Dead sau đó đợi 1 giây trước khi destroy GameObject.
+    /// </summary>
+    private void Die()
+    {
+        if (isDead) return;
+
+        isDead = true;
+        currentHealth = 0f;
+        horizontalInput = 0f;
+
+#if UNITY_6000_0_OR_NEWER
+        rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+#else
+        rb.velocity = new Vector2(0f, rb.velocity.y);
+#endif
+
+        Debug.Log("[PlayerController] Player da bi tieu diet!");
+        OnPlayerDeath?.Invoke();
+
+        // 1. Chạy animation Dead
+        ChangeAnimationState(ANIM_DEAD, forceRestart: true);
+
+        // 2. Đợi 1 giây trước khi destroy GameObject
+        StartCoroutine(DieRoutine());
+    }
+
+    private IEnumerator DieRoutine()
+    {
+        yield return new WaitForSeconds(1.0f);
+        Debug.Log("[PlayerController] Da doi 1s sau khi chet -> Destroy GameObject Player!");
+        Destroy(gameObject);
+    }
+
+    /// <summary>
+    /// Hồi sinh Player với lượng máu đầy đủ.
+    /// </summary>
+    public void Respawn(Vector3 respawnPosition)
+    {
+        transform.position = respawnPosition;
+        isDead = false;
+        currentHealth = maxHealth;
+        canDash = true;
+        isDashing = false;
+        isInvincible = false;
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+        Debug.Log("[PlayerController] Player da hoi sinh tai: " + respawnPosition);
+    }
+    #endregion
+
+    #region Animation Handling
+    /// <summary>
+    /// Cập nhật Animation state của Player:
+    /// - Khi tấn công: Chạy "Attack"
+    /// - Khi nhảy/rơi trên không (kể cả double jump): Chạy "Jump"
+    /// - Khi di chuyển bằng A / D trên mặt đất: Chạy "Run"
+    /// - Khi đứng yên trên mặt đất: Chạy "Idle"
+    /// </summary>
+    private void UpdateAnimation()
+    {
+        if (animator == null || isDead) return;
+
+        // Ưu tiên 1: Đang tấn công -> Giữ animation Attack
+        if (isAttacking)
+        {
+            return;
+        }
+
+        // Ưu tiên 2: Đang trên không (nhảy hoặc rơi) -> Chạy animation Jump
+        if (!isGrounded)
+        {
+            ChangeAnimationState(ANIM_JUMP);
+            return;
+        }
+
+        // Ưu tiên 3: Đang di chuyển bằng A / D trên mặt đất -> Chạy animation Run
+        if (Mathf.Abs(horizontalInput) > 0.01f)
+        {
+            ChangeAnimationState(ANIM_RUN);
+        }
+        // Ưu tiên 4: Đứng yên trên mặt đất -> Chạy animation Idle
+        else
+        {
+            ChangeAnimationState(ANIM_IDLE);
+        }
+    }
+
+    /// <summary>
+    /// Chuyển đổi trạng thái Animation một cách an toàn và tối ưu
+    /// </summary>
+    public void ChangeAnimationState(string newState, bool forceRestart = false)
+    {
+        if (animator == null) return;
+        if (animator.runtimeAnimatorController == null) return;
+
+        // Nếu animation đang chạy đúng state này và không ép chạy lại từ đầu thì bỏ qua
+        if (currentAnimState == newState && !forceRestart) return;
+
+        currentAnimState = newState;
+        animator.Play(newState, 0, forceRestart ? 0f : float.NegativeInfinity);
     }
     #endregion
 
