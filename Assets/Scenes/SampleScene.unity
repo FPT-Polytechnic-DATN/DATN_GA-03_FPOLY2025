@@ -130,7 +130,7 @@ GameObject:
   - component: {fileID: 381384190}
   - component: {fileID: 381384189}
   - component: {fileID: 381384188}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Ground
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -660,11 +660,11 @@ MonoBehaviour:
   moveSpeed: 3.5
   jumpForce: 8.5
   doubleJumpForce: 8
-  groundCheck: {fileID: 0}
+  groundCheck: {fileID: 381384190}
   groundCheckRadius: 0.2
   groundLayer:
     serializedVersion: 2
-    m_Bits: 0
+    m_Bits: 8
   dashSpeed: 12
   dashDuration: 0.2
   iFrameDuration: 1
