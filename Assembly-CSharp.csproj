@@ -53,11 +53,16 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\Scripts\mhieu\Health.cs" />
+    <Compile Include="Assets\Scripts\mhieu\RuneData.cs" />
+    <Compile Include="Assets\Scripts\mhieu\RuneInventory.cs" />
     <Compile Include="Assets\Scripts\mhieu\SaveManager.cs" />
     <Compile Include="Assets\Scripts\PlayerController.cs" />
     <Compile Include="Assets\Scripts\mhieu\Checkpoint.cs" />
+    <Compile Include="Assets\Scripts\mhieu\RunePickup.cs" />
     <Compile Include="Assets\Scripts\mhieu\EnemyAI.cs" />
+    <Compile Include="Assets\Scripts\mhieu\PlayerStats.cs" />
     <Compile Include="Assets\Scripts\mhieu\PlayerRespawn.cs" />
+    <Compile Include="Assets\Scripts\mhieu\RuneAssetGenerator.cs" />
     <Compile Include="Assets\Scripts\mhieu\SwordSlash.cs" />
     <Compile Include="Assets\Scripts\mhieu\PlayerCombat.cs" />
   </ItemGroup>

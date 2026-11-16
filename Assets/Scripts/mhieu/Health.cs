@@ -21,6 +21,9 @@ public class Health : MonoBehaviour, IDamageable
     [Tooltip("Tỉ lệ lực hất lên so với lực hất ngang")]
     [SerializeField] private float knockbackUpRatio = 0.4f;
 
+    [Header("Chỉ số rune (chỉ Player cần, quái để trống)")]
+    [SerializeField] private PlayerStats stats;
+
     /// <summary>Bật từ bên ngoài, ví dụ lúc dash (i-frame).</summary>
     [NonSerialized] public bool externalInvincible;
 
@@ -35,16 +38,48 @@ public class Health : MonoBehaviour, IDamageable
 
     private Rigidbody2D rb;
     private float invincibleUntil;
+    private int baseMaxHealth;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
+        baseMaxHealth = maxHealth;
         Current = maxHealth;
+        if (stats == null) stats = GetComponent<PlayerStats>();
+    }
+
+    private void OnEnable()
+    {
+        if (stats != null) stats.StatsChanged += RefreshMaxHealth;
+    }
+
+    private void OnDisable()
+    {
+        if (stats != null) stats.StatsChanged -= RefreshMaxHealth;
+    }
+
+    /// <summary>Rune đổi máu tối đa: tăng thì cộng luôn máu hiện tại, giảm thì cắt xuống mức mới.</summary>
+    private void RefreshMaxHealth()
+    {
+        if (IsDead) return;
+        int newMax = Mathf.Max(1, Mathf.RoundToInt(stats.Get(StatType.MaxHealth, baseMaxHealth)));
+        if (newMax == maxHealth) return;
+
+        int diff = newMax - maxHealth;
+        maxHealth = newMax;
+        Current = diff > 0 ? Current + diff : Mathf.Min(Current, newMax);
+        HealthChanged?.Invoke(Current, maxHealth);
     }
 
     public void TakeDamage(int amount, Vector2 hitDirection, float knockback)
     {
         if (IsDead || IsInvincible || amount <= 0) return;
+
+        if (stats != null)
+        {
+            float reduction = Mathf.Clamp(stats.Get(StatType.DamageReduction, 0f), -0.5f, 0.75f);
+            amount = Mathf.Max(1, Mathf.RoundToInt(amount * (1f - reduction)));
+        }
 
         Current = Mathf.Max(0, Current - amount);
         invincibleUntil = Time.time + invincibleTime;

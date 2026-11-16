@@ -29,6 +29,13 @@ public class SwordSlash : MonoBehaviour
         Destroy(gameObject, lifetime);
     }
 
+    /// <summary>Phiên bản cho phép chỉ số (rune) quyết định sát thương.</summary>
+    public void Launch(int dir, int damageOverride)
+    {
+        damage = damageOverride;
+        Launch(dir);
+    }
+
     private void Update()
     {
         transform.Translate(Vector2.right * (direction * speed * Time.deltaTime), Space.World);
