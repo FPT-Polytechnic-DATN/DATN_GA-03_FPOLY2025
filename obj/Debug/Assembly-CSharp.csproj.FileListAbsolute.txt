@@ -1,0 +1,6 @@
+d:\3D_Game\DATN_2026\Temp\bin\Debug\Assembly-CSharp.dll
+d:\3D_Game\DATN_2026\Temp\bin\Debug\Assembly-CSharp.pdb
+d:\3D_Game\DATN_2026\obj\Debug\Assembly-CSharp.csproj.AssemblyReference.cache
+d:\3D_Game\DATN_2026\obj\Debug\Assembly-CSharp.csproj.CoreCompileInputs.cache
+d:\3D_Game\DATN_2026\obj\Debug\Assembly-CSharp.dll
+d:\3D_Game\DATN_2026\obj\Debug\Assembly-CSharp.pdb

@@ -1,7 +1,3 @@
-/Library/
-/Logs/
 /.vs/
-Temp/
-/UserSettings/
-/ProjectSettings/ShaderGraphSettings.asset
-*.csproj
+/Logs/
+/Library/

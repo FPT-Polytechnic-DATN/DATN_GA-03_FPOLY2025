@@ -56,6 +56,7 @@
     <Compile Include="Assets\Scripts\mhieu\RuneData.cs" />
     <Compile Include="Assets\Scripts\mhieu\RuneInventory.cs" />
     <Compile Include="Assets\Scripts\mhieu\SaveManager.cs" />
+    <Compile Include="Assets\Scripts\MonsterController.cs" />
     <Compile Include="Assets\Scripts\PlayerController.cs" />
     <Compile Include="Assets\Scripts\mhieu\Checkpoint.cs" />
     <Compile Include="Assets\Scripts\mhieu\RunePickup.cs" />
